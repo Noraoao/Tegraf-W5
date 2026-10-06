@@ -27,4 +27,4 @@ _**Library/software apa saja yang perlu diinstal agar aplikasi bisa berjalan.**_
 
 ## Usage of Ai
 
-- 
+- https://share.gemini.google/cEkSP8yedGcW
