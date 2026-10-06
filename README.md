@@ -1,4 +1,4 @@
-# Tegraf-W5
+# Tegraf-W5 Group 4
 
 ## Identity
 | Name | NRP | 
