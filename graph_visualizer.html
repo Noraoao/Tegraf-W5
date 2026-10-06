@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Graph Visualizer & Fundamental Matrices</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #2a3140;
+    --text: #e6edf3;
+    --muted: #8b97a7;
+    --accent: #58a6ff;
+    --tree-edge: #3fb950;
+    --chord-edge: #f0883e;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--sans);
+    line-height: 1.5; padding: 24px 20px 60px; min-height: 100vh;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  header { margin-bottom: 20px; }
+  h1 { font-size: 22px; font-weight: 600; }
+  h1 .tag { color: var(--accent); }
+  header p { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  
+  .layout { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 14px; font-weight: 600; }
+  
+  /* Inputs */
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  select, textarea, input {
+    width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-family: var(--mono); font-size: 13px;
+  }
+  textarea { height: 160px; resize: vertical; line-height: 1.4; white-space: pre; }
+  
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button {
+    font-family: var(--sans); font-size: 13px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: all 0.15s;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #04101f; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { opacity: 0.9; }
+
+  /* Graph Canvas */
+  .stage { display: flex; align-items: center; justify-content: center; min-height: 480px; background: var(--panel-2); border-radius: 8px; position: relative; overflow: hidden; }
+  svg { width: 100%; height: 480px; }
+  
+  .edge { stroke: #30363d; stroke-width: 3; transition: all 0.3s; }
+  .edge.tree-edge { stroke: var(--tree-edge); stroke-width: 4; }
+  .edge.chord-edge { stroke: var(--chord-edge); stroke-width: 3; stroke-dasharray: 5,5; }
+  
+  .edge-label { fill: var(--muted); font-family: var(--mono); font-size: 11px; text-anchor: middle; }
+  .node-circle { fill: var(--panel); stroke: var(--accent); stroke-width: 3; cursor: grab; }
+  .node-label { fill: #fff; font-family: var(--sans); font-size: 13px; font-weight: bold; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+
+  /* Matrix Displays */
+  .matrix-container { overflow-x: auto; margin-top: 8px; }
+  table.matrix-table {
+    border-collapse: collapse; font-family: var(--mono); font-size: 12px; margin-bottom: 12px;
+  }
+  table.matrix-table th, table.matrix-table td {
+    border: 1px solid var(--border); padding: 6px 10px; text-align: center;
+  }
+  table.matrix-table th { background: var(--panel-2); color: var(--accent); }
+  table.matrix-table td.active { background: rgba(88, 166, 255, 0.15); font-weight: bold; color: var(--accent); }
+  
+  .legend { display: flex; gap: 16px; font-size: 12px; margin-top: 8px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .box { width: 12px; height: 12px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Graph Visualizer <span class="tag">· Cycle & Cut-Set Analyzer</span></h1>
+    <p>Input an Adjacency or Incidence matrix to calculate Fundamental Cycles ($B_f$) and Fundamental Cut-Sets ($C_f$).</p>
+  </header>
+
+  <div class="layout">
+    <!-- Controls Column -->
+    <div>
+      <div class="card">
+        <h2>1. Matrix Input</h2>
+        <div class="field">
+          <label for="matrix-type">Input Type</label>
+          <select id="matrix-type">
+            <option value="adjacency">Adjacency Matrix (N x N)</option>
+            <option value="incidence">Incidence Matrix (N x M)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="matrix-text">Matrix Data</label>
+          <textarea id="matrix-text" spellcheck="false"></textarea>
+        </div>
+
+        <div class="row">
+          <button class="primary" id="btn-build">Build & Analyze</button>
+          <button id="btn-sample">Load Sample</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Legend</h2>
+        <div class="legend">
+          <span><div class="box" style="background:var(--tree-edge);"></div> Spanning Tree Edge</span>
+          <span><div class="box" style="background:var(--chord-edge);"></div> Chord (Non-Tree Edge)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Output & Canvas Column -->
+    <div>
+      <div class="card">
+        <h2>2. Graph Visualization <span style="font-size:11px; font-weight:normal; color:var(--muted);">(Drag nodes to adjust position)</span></h2>
+        <div class="stage">
+          <svg id="svg-graph"></svg>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. Fundamental Cycle Matrix ($B_f$)</h2>
+        <p style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Rows represent fundamental cycles formed by adding one chord (dashed edge) to the Spanning Tree.
+        </p>
+        <div class="matrix-container" id="cycle-matrix-out"></div>
+      </div>
+
+      <div class="card">
+        <h2>4. Fundamental Cut-Set Matrix ($C_f$)</h2>
+        <p style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Rows represent fundamental cut-sets formed by taking one tree edge (solid green) and necessary chords.
+        </p>
+        <div class="matrix-container" id="cutset-matrix-out"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// State Variables
+let nodes = {};
+let edges = [];
+let treeEdges = [];
+let chordEdges = [];
+let draggedNode = null;
+
+// Default Samples
+const sampleAdjacency = `0 1 1 1
+1 0 1 0
+1 1 0 1
+1 0 1 0`;
+
+const sampleIncidence = `1 1 1 0 0
+1 0 0 1 0
+0 1 0 1 1
+0 0 1 0 1`;
+
+const svg = document.getElementById('svg-graph');
+const matrixTypeSelect = document.getElementById('matrix-type');
+const matrixTextarea = document.getElementById('matrix-text');
+
+// Auto-layout nodes in a circle
+function layoutNodes(nodeList) {
+  nodes = {};
+  const count = nodeList.length;
+  const cx = 300, cy = 240, r = 160;
+  
+  nodeList.forEach((name, idx) => {
+    const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
+    nodes[name] = {
+      x: Math.round(cx + r * Math.cos(angle)),
+      y: Math.round(cy + r * Math.sin(angle))
+    };
+  });
+}
+
+// Render Graph SVG
+function renderGraph() {
+  svg.innerHTML = '';
+
+  // Render Edges
+  edges.forEach((e) => {
+    const p1 = nodes[e.u], p2 = nodes[e.v];
+    if (!p1 || !p2) return;
+
+    const isTree = treeEdges.some(te => (te.u === e.u && te.v === e.v) || (te.u === e.v && te.v === e.u));
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+    line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+    line.setAttribute('class', `edge ${isTree ? 'tree-edge' : 'chord-edge'}`);
+    svg.appendChild(line);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', (p1.x + p2.x) / 2);
+    text.setAttribute('y', (p1.y + p2.y) / 2 - 6);
+    text.setAttribute('class', 'edge-label');
+    text.textContent = e.name;
+    svg.appendChild(text);
+  });
+
+  // Render Nodes
+  Object.keys(nodes).forEach(key => {
+    const p = nodes[key];
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', p.x); circle.setAttribute('cy', p.y);
+    circle.setAttribute('r', 18);
+    circle.setAttribute('class', 'node-circle');
+    circle.addEventListener('mousedown', (evt) => startDrag(evt, key));
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', p.x); text.setAttribute('y', p.y);
+    text.setAttribute('class', 'node-label');
+    text.textContent = key;
+
+    g.appendChild(circle);
+    g.appendChild(text);
+    svg.appendChild(g);
+  });
+}
+
+// Drag & Drop Nodes
+function startDrag(evt, key) {
+  draggedNode = key;
+  window.addEventListener('mousemove', dragNode);
+  window.addEventListener('mouseup', endDrag);
+}
+function dragNode(evt) {
+  if (!draggedNode) return;
+  const rect = svg.getBoundingClientRect();
+  nodes[draggedNode].x = Math.max(20, Math.min(rect.width - 20, evt.clientX - rect.left));
+  nodes[draggedNode].y = Math.max(20, Math.min(rect.height - 20, evt.clientY - rect.top));
+  renderGraph();
+}
+function endDrag() {
+  draggedNode = null;
+  window.removeEventListener('mousemove', dragNode);
+  window.removeEventListener('mouseup', endDrag);
+}
+
+// Parse Input Matrices
+function parseMatrix() {
+  const rawText = matrixTextarea.value.trim();
+  const lines = rawText.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0 && !l.startsWith('#'));
+
+  if (lines.length === 0) return alert('Please enter valid matrix data.');
+
+  const matrix = lines.map(line => line.split(/[\s,]+/).map(Number));
+  edges = [];
+
+  if (matrixTypeSelect.value === 'adjacency') {
+    const n = matrix.length;
+    const nodeNames = Array.from({length: n}, (_, i) => String.fromCharCode(65 + i));
+    layoutNodes(nodeNames);
+
+    let edgeCount = 1;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (matrix[i][j] > 0) {
+          edges.push({ id: edgeCount, name: `e${edgeCount}`, u: nodeNames[i], v: nodeNames[j] });
+          edgeCount++;
+        }
+      }
+    }
+  } else {
+    // Incidence Matrix
+    const n = matrix.length;
+    const m = matrix[0].length;
+    const nodeNames = Array.from({length: n}, (_, i) => String.fromCharCode(65 + i));
+    layoutNodes(nodeNames);
+
+    for (let col = 0; col < m; col++) {
+      let conn = [];
+      for (let row = 0; row < n; row++) {
+        if (matrix[row][col] !== 0) conn.push(nodeNames[row]);
+      }
+      if (conn.length === 2) {
+        edges.push({ id: col + 1, name: `e${col + 1}`, u: conn[0], v: conn[1] });
+      }
+    }
+  }
+
+  computeSpanningTreeAndMatrices();
+  renderGraph();
+}
+
+// Compute Spanning Tree (BFS) and Matrix Forms
+function computeSpanningTreeAndMatrices() {
+  const nodeList = Object.keys(nodes);
+  if (nodeList.length === 0) return;
+
+  // Spanning tree via BFS
+  treeEdges = [];
+  chordEdges = [];
+  const visited = new Set([nodeList[0]]);
+  const queue = [nodeList[0]];
+
+  const edgeVisited = new Set();
+
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    edges.forEach(e => {
+      if (edgeVisited.has(e.id)) return;
+
+      let neighbor = null;
+      if (e.u === curr) neighbor = e.v;
+      else if (e.v === curr) neighbor = e.u;
+
+      if (neighbor) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+          treeEdges.push(e);
+          edgeVisited.add(e.id);
+        }
+      }
+    });
+  }
+
+  chordEdges = edges.filter(e => !treeEdges.some(te => te.id === e.id));
+
+  // Build BFS Adjacency for path-finding in Tree
+  const treeAdj = {};
+  nodeList.forEach(n => treeAdj[n] = []);
+  treeEdges.forEach(e => {
+    treeAdj[e.u].push({ neighbor: e.v, edge: e });
+    treeAdj[e.v].push({ neighbor: e.u, edge: e });
+  });
+
+  function getTreePathEdges(start, target) {
+    const q = [[start, []]];
+    const seen = new Set([start]);
+
+    while (q.length > 0) {
+      const [curr, path] = q.shift();
+      if (curr === target) return path;
+
+      for (let neighborObj of treeAdj[curr]) {
+        if (!seen.has(neighborObj.neighbor)) {
+          seen.add(neighborObj.neighbor);
+          q.push([neighborObj.neighbor, [...path, neighborObj.edge]]);
+        }
+      }
+    }
+    return [];
+  }
+
+  // 1. Build Fundamental Cycle Matrix (B_f)
+  // Rows: Chords, Columns: All Edges
+  const Bf = [];
+  chordEdges.forEach(chord => {
+    const path = getTreePathEdges(chord.u, chord.v);
+    const row = {};
+    edges.forEach(e => row[e.id] = 0);
+    row[chord.id] = 1; // Chord forms the cycle
+    path.forEach(e => row[e.id] = 1);
+    Bf.push({ chord: chord, row: row });
+  });
+
+  // 2. Build Fundamental Cut-Set Matrix (C_f)
+  // Rows: Tree Edges, Columns: All Edges
+  const Cf = [];
+  treeEdges.forEach(treeEdge => {
+    const row = {};
+    edges.forEach(e => row[e.id] = 0);
+    row[treeEdge.id] = 1;
+
+    // A chord is in the fundamental cutset if its tree path contains this tree edge
+    chordEdges.forEach(chord => {
+      const path = getTreePathEdges(chord.u, chord.v);
+      if (path.some(e => e.id === treeEdge.id)) {
+        row[chord.id] = 1;
+      }
+    });
+    Cf.push({ treeEdge: treeEdge, row: row });
+  });
+
+  renderMatrixHTML('cycle-matrix-out', Bf, 'chord', 'Cycle');
+  renderMatrixHTML('cutset-matrix-out', Cf, 'treeEdge', 'Cutset');
+}
+
+// Render HTML Tables for Matrices
+function renderMatrixHTML(targetId, matrixData, rowLabelKey, typeLabel) {
+  const container = document.getElementById(targetId);
+  if (matrixData.length === 0) {
+    container.innerHTML = `<p style="font-size:12px; color:var(--muted);">No fundamental ${typeLabel.toLowerCase()}s found (graph may be a tree or disconnected).</p>`;
+    return;
+  }
+
+  let html = `<table class="matrix-table"><thead><tr><th>${typeLabel} (${rowLabelKey === 'chord' ? 'Chord' : 'Tree Edge'})</th>`;
+  edges.forEach(e => {
+    const isTree = treeEdges.some(te => te.id === e.id);
+    html += `<th style="color:${isTree ? 'var(--tree-edge)' : 'var(--chord-edge)'}">${e.name}</th>`;
+  });
+  html += `</tr></thead><tbody>`;
+
+  matrixData.forEach((item, idx) => {
+    const labelEdge = item[rowLabelKey];
+    html += `<tr><td><strong>${labelEdge.name}</strong> (${labelEdge.u}-${labelEdge.v})</td>`;
+    edges.forEach(e => {
+      const val = item.row[e.id];
+      html += `<td class="${val ? 'active' : ''}">${val}</td>`;
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+}
+
+// Controls
+matrixTextarea.value = sampleAdjacency;
+document.getElementById('btn-sample').addEventListener('click', () => {
+  matrixTextarea.value = matrixTypeSelect.value === 'adjacency' ? sampleAdjacency : sampleIncidence;
+  parseMatrix();
+});
+document.getElementById('btn-build').addEventListener('click', parseMatrix);
+
+// Init
+parseMatrix();
+</script>
+</body>
+</html>
