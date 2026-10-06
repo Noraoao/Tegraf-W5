@@ -13,7 +13,7 @@
 - Any text editor to save the file
 - Any web browser to open the file
 
-## Instructions on running it
+## How to Run
 
 - Save the file
 - Open the html file in a browser
